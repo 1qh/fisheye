@@ -53,7 +53,7 @@ def calib(fn):
       vis = cvtColor(img, COLOR_GRAY2BGR)
       drawChessboardCorners(vis, pattern_size, corners, found)
       name = splitfn(fn)[1]
-      outfile = os.path.join(vis_dir, name + '.jpg')
+      outfile = os.path.join(vis_dir, f'{name}.jpg')
       imwrite(outfile, vis)
   if not found:
     print(fn)
