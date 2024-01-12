@@ -35,9 +35,9 @@ class FisheyeFlatten:
     self.new_camera_matrix, roi = getOptimalNewCameraMatrix(
       camera_matrix, dist_coeffs, (s, s), 1, (s, s)
     )
-    right, top, new_w, new_h = roi
+    left, top, new_w, new_h = roi
     bottom = top + new_h
-    left = right + new_w
+    right = left + new_w
 
     if aspect_ratio:
       if new_w / new_h > aspect_ratio:
@@ -49,7 +49,13 @@ class FisheyeFlatten:
         top += spare
         bottom -= spare
 
-    self.crop = slice(top, bottom), slice(right, left)
+    possible1pix = (right - left) - (bottom - top)
+    if possible1pix > 0:
+      bottom += 1
+    elif possible1pix < 0:
+      right += 1
+
+    self.crop = slice(top, bottom), slice(left, right)
     self.slic = (
       (slice(None), slice(None))
       if w == h
@@ -71,7 +77,7 @@ def app(source: str, out: str = 'out'):
     export_vid(source, out)
   elif source.endswith('.jpg'):
     img = imread(source)
-    flatten = FisheyeFlatten(img.shape[:2][::-1], None)
+    flatten = FisheyeFlatten(img.shape[:2][::-1], 1)
 
     start = perf_counter()
     img = flatten(img)
@@ -84,7 +90,7 @@ def export_vid(source, out):
   stream = VideoGear(source=source).start()
   writer = WriteGear(f'{out}.mp4')
   reso = VideoInfo.from_video_path(source).resolution_wh
-  flatten = FisheyeFlatten(reso)
+  flatten = FisheyeFlatten(reso, 1)
 
   while (img := stream.read()) is not None:
     img = flatten(img)

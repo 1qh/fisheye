@@ -6,6 +6,7 @@ import numpy as np
 from cv2 import (
   COLOR_GRAY2BGR,
   IMREAD_GRAYSCALE,
+  NORM_L2,
   TERM_CRITERIA_COUNT,
   TERM_CRITERIA_EPS,
   calibrateCamera,
@@ -15,6 +16,8 @@ from cv2 import (
   findChessboardCorners,
   imread,
   imwrite,
+  norm,
+  projectPoints,
   resize,
 )
 
@@ -22,13 +25,15 @@ threads_num = 12
 img_mask = 'frames/*.jpg'
 vis_dir = './debug'
 pattern_size = (5, 8)
-
-
 img_names = glob(img_mask)
-pattern_points = np.zeros((np.prod(pattern_size), 3), np.float32)
-pattern_points[:, :2] = np.indices(pattern_size).T.reshape(-1, 2)
-obj_points = []
-img_points = []
+
+found_chessboards = glob('debug/*.jpg')
+found_chessboards = [i.replace('debug', 'frames') for i in found_chessboards]
+img_names = [i for i in img_names if i in found_chessboards]
+
+obj_point = np.zeros((np.prod(pattern_size), 3), np.float32)
+obj_point[:, :2] = np.indices(pattern_size).T.reshape(-1, 2)
+
 h, w = imread(img_names[0], IMREAD_GRAYSCALE).shape[:2]
 print('h =', h, '\nw =', w)
 
@@ -39,7 +44,7 @@ def splitfn(fn):
   return path, name, ext
 
 
-def calib(fn):
+def get_corners(fn):
   img = imread(fn, IMREAD_GRAYSCALE)
   img = resize(img, (w, h))
   if img is None:
@@ -57,28 +62,50 @@ def calib(fn):
       imwrite(outfile, vis)
   if not found:
     print(fn)
-    return None
+    return
   print(fn, 'OK')
-  return (corners.reshape(-1, 2), pattern_points)
+  return corners.reshape(-1, 2)
 
 
 # chessboards = [calib(x) for x in img_names]
 pool = Pool(threads_num)
-chessboards = pool.map(calib, img_names)
-chessboards = [x for x in chessboards if x]
-print(len(chessboards), 'chessboards found')
-for corners, pattern_points in chessboards:
-  img_points.append(corners)
-  obj_points.append(pattern_points)
+img_points = pool.map(get_corners, img_names)
+img_points = [x for x in img_points if x is not None]
+print(len(img_points), 'chessboards found')
 
-rms, cam_mtx, dist_coefs, _, _ = calibrateCamera(
-  obj_points,
-  img_points,
-  (w, h),
-  None,
-  None,
-)
-print('\nRMS:', rms)
+
+def calibrate(img_points: list[np.ndarray]):
+  total = len(img_points)
+
+  rms, cam_mtx, dist_coefs, rvecs, tvecs = calibrateCamera(
+    [obj_point] * total,
+    img_points,
+    (w, h),
+    None,
+    None,
+  )
+  print('\nRMS:', rms)
+
+  errors = np.array([])
+  for i in range(total):
+    imgpoints2, _ = projectPoints(obj_point, rvecs[i], tvecs[i], cam_mtx, dist_coefs)
+    error = norm(img_points[i], np.squeeze(imgpoints2), NORM_L2) / len(imgpoints2)
+    errors = np.append(errors, error)
+
+  print(errors)
+  print(f'Min error: {errors.min()}')
+  print(f'Max error: {errors.max()}')
+  print(f'Mean error: {errors.mean()}')
+
+  return cam_mtx, dist_coefs, errors
+
+
+_, _, errors = calibrate(img_points)
+
+new_img_points = [img_points[i] for i in np.where(errors < 2)[0]]
+
+cam_mtx, dist_coefs, _ = calibrate(new_img_points)
+
 print('camera matrix:\n', cam_mtx)
 print('distortion coefficients: ', dist_coefs)
 
