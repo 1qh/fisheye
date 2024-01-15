@@ -13,7 +13,7 @@ from cv2 import (
   waitKey,
 )
 from numpy import ndarray
-from supervision import VideoInfo
+from supervision import FPSMonitor, Point, VideoInfo, draw_text
 from typer import run
 from vidgear.gears import VideoGear, WriteGear
 
@@ -87,17 +87,26 @@ def app(source: str, out: str = 'out'):
 
 
 def export_vid(source, out):
+  mon = FPSMonitor()
   stream = VideoGear(source=source).start()
   writer = WriteGear(f'{out}.mp4')
   reso = VideoInfo.from_video_path(source).resolution_wh
   flatten = FisheyeFlatten(reso, 1)
 
-  while (img := stream.read()) is not None:
-    img = flatten(img)
-    imshow('', img)
+  while (f := stream.read()) is not None:
+    mon.tick()
+    fps = mon()
+    f = flatten(f)
+    draw_text(
+      scene=f,
+      text=f'{fps:.1f}',
+      text_anchor=Point(x=50, y=20),
+      text_scale=1,
+    )
+    imshow('', f)
     if waitKey(1) & 0xFF == ord('q'):
       break
-    writer.write(img)
+    writer.write(f)
 
   stream.stop()
   writer.close()
